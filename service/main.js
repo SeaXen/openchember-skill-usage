@@ -292,8 +292,9 @@ function streakOf(days) {
   }
   return n;
 }
-function trendOf(allDays, range) {
+function trendOf(allDays, range, tokenByDay) {
   const counts = new Map(allDays.map((d) => [Date.parse(`${d.day}T00:00:00`), d.count]));
+  const tokenCounts = new Map(allDays.map((d) => [Date.parse(`${d.day}T00:00:00`), tokenByDay.get(d.day) ?? 0]));
   const today = new Date(midnight());
   let start, prevStart, prevEnd, end = today, label;
   if (range === "today") {
@@ -319,7 +320,13 @@ function trendOf(allDays, range) {
   } else {
     const active = allDays.filter((d) => d.count > 0);
     if (!active.length)
-      return { current: 0, previous: 0, pct: null, label: "vs previous period" };
+      return {
+        current: 0,
+        previous: 0,
+        pct: null,
+        label: "vs previous period",
+        tokens: { current: 0, previous: 0, pct: null }
+      };
     start = new Date(`${active[active.length - 1].day}T00:00:00`);
     end = new Date(`${active[0].day}T00:00:00`);
     const length = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
@@ -329,16 +336,28 @@ function trendOf(allDays, range) {
     prevStart.setDate(prevStart.getDate() - (length - 1));
     label = "vs previous period";
   }
-  const sum = (from, to) => {
+  const sum = (from, to, source) => {
     let total = 0;
-    for (const [t, n] of counts)
+    for (const [t, n] of source)
       if (t >= from && t <= to)
         total += n;
-    return total;
+    return Math.round(total);
   };
-  const current = sum(start.getTime(), end.getTime());
-  const previous = sum(prevStart.getTime(), prevEnd.getTime());
-  return { current, previous, pct: previous ? Math.round((current - previous) / previous * 100) : null, label };
+  const current = sum(start.getTime(), end.getTime(), counts);
+  const previous = sum(prevStart.getTime(), prevEnd.getTime(), counts);
+  const tokCurrent = sum(start.getTime(), end.getTime(), tokenCounts);
+  const tokPrevious = sum(prevStart.getTime(), prevEnd.getTime(), tokenCounts);
+  return {
+    current,
+    previous,
+    pct: previous ? Math.round((current - previous) / previous * 100) : null,
+    label,
+    tokens: {
+      current: tokCurrent,
+      previous: tokPrevious,
+      pct: tokPrevious ? Math.round((tokCurrent - tokPrevious) / tokPrevious * 100) : null
+    }
+  };
 }
 var note = (id, text, tone = "muted") => ({ kind: "note", id, text, tone });
 function statusRows() {
@@ -376,7 +395,8 @@ function breakdown(range, project) {
     cache: 0,
     projects,
     streak: 0,
-    trend: { current: 0, previous: 0, pct: null, label: "vs previous period" },
+    builtAt: current().builtAt,
+    trend: { current: 0, previous: 0, pct: null, label: "vs previous period", tokens: { current: 0, previous: 0, pct: null } },
     expensive: null,
     totals: { today: 0, week: 0, month: 0, year: 0, all: 0 }
   };
@@ -397,7 +417,8 @@ function breakdown(range, project) {
   const data = aggregate(scoped, cutoff);
   const sessionDir = new Map(calls.map((c) => [c.session, c.directory]));
   const scopedMsgs = project === ALL_PROJECTS ? msgs : msgs.filter((m) => sessionDir.get(m.s) === project);
-  const segments = tokenSegments(scopedMsgs).filter((seg) => seg.start >= cutoff);
+  const allSegments = tokenSegments(scopedMsgs);
+  const segments = allSegments.filter((seg) => seg.start >= cutoff);
   const tokenTotals = new Map;
   for (const seg of segments) {
     const entry = tokenTotals.get(seg.skill) ?? { tokens: 0, cache: 0, sessions: new Set };
@@ -420,7 +441,7 @@ function breakdown(range, project) {
   });
   const byTokens = [...skills].sort((a, b) => b.tokens - a.tokens)[0];
   const dayInfo = new Map;
-  for (const seg of segments) {
+  for (const seg of allSegments) {
     const key = dayKey(seg.start);
     const info = dayInfo.get(key) ?? { tokens: 0, skills: new Set };
     info.tokens += seg.tokens;
@@ -431,9 +452,14 @@ function breakdown(range, project) {
     const info = dayInfo.get(d.day);
     return { day: d.day, count: d.count, tokens: info?.tokens ?? 0, skills: info ? [...info.skills].sort() : [] };
   });
-  const allDays = aggregate(scoped, 0).days;
+  const allDays = aggregate(scoped, 0).days.map((d) => {
+    const info = dayInfo.get(d.day);
+    return { day: d.day, count: d.count, tokens: info?.tokens ?? 0, skills: info ? [...info.skills].sort() : [] };
+  });
+  const tokenByDay = new Map(allDays.map((d) => [d.day, d.tokens]));
   return {
     range,
+    builtAt: current().builtAt,
     label: LABELS[range] ?? LABELS.all,
     project,
     total: data.total,
@@ -443,7 +469,7 @@ function breakdown(range, project) {
     cache: segments.reduce((sum, seg) => sum + seg.cache, 0),
     projects,
     streak: streakOf(allDays),
-    trend: trendOf(allDays, range),
+    trend: trendOf(allDays, range, tokenByDay),
     expensive: byTokens?.tokens ? { id: byTokens.id, tokens: byTokens.tokens, count: byTokens.count } : null,
     totals
   };

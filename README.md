@@ -10,12 +10,13 @@ It reads the skill tool calls already recorded by OpenCode, then shows counts, t
 A compact leaderboard of your most-used skills with counts and bars. Always all-time, refreshed every 10 seconds while visible.
 
 **Rail tab → "Skill Usage"**
-- Five ranges: Today, last 7 days, last 30 days, this year, all time.
+- Five ranges: Today, Week, Month, Year, All (labelled in the detail text as today, last 7 days, last 30 days, this year, all time).
 - Five stat chips for the same ranges.
 - A GitHub-style activity heatmap coloured by tokens or by number of uses (toggle in the section header). Hover a square for the date, uses, tokens, and skills involved.
-- "Skills in this period" — ranked list with use count, share, tokens, last used, and sessions.
+- "Skills in this period" — ranked list with use count, share, tokens, last used, and sessions, with a filter box when there are many skills.
 - "Skills used by day" — which skills were used on each active day.
-- Streak and comparison against the previous equivalent period ("vs yesterday", "vs prior 30 days", etc.).
+- Streak and comparison against the previous equivalent period for **both uses and tokens** ("vs yesterday", "vs prior 30 days", etc.).
+- "Updated … ago" freshness note so you can see how current the numbers are.
 - Most expensive skill by tokens.
 - Project dropdown to scope everything to one repository.
 - Refresh button for a full re-read.

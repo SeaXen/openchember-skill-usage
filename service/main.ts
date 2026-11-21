@@ -252,8 +252,9 @@ function streakOf(days: Day[]): number {
 }
 
 // Compare the selected period against the immediately preceding period of equal length.
-function trendOf(allDays: Day[], range: string) {
+function trendOf(allDays: Day[], range: string, tokenByDay: Map<string, number>) {
   const counts = new Map(allDays.map((d) => [Date.parse(`${d.day}T00:00:00`), d.count]));
+  const tokenCounts = new Map(allDays.map((d) => [Date.parse(`${d.day}T00:00:00`), tokenByDay.get(d.day) ?? 0]));
   const today = new Date(midnight());
   let start: Date, prevStart: Date, prevEnd: Date, end = today, label: string;
 
@@ -275,7 +276,10 @@ function trendOf(allDays: Day[], range: string) {
     label = 'vs last year';
   } else {
     const active = allDays.filter((d) => d.count > 0);
-    if (!active.length) return { current: 0, previous: 0, pct: null, label: 'vs previous period' };
+    if (!active.length) return {
+      current: 0, previous: 0, pct: null, label: 'vs previous period',
+      tokens: { current: 0, previous: 0, pct: null },
+    };
     start = new Date(`${active[active.length - 1].day}T00:00:00`);
     end = new Date(`${active[0].day}T00:00:00`);
     const length = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
@@ -284,14 +288,22 @@ function trendOf(allDays: Day[], range: string) {
     label = 'vs previous period';
   }
 
-  const sum = (from: number, to: number) => {
+  const sum = (from: number, to: number, source: Map<number, number>) => {
     let total = 0;
-    for (const [t, n] of counts) if (t >= from && t <= to) total += n;
-    return total;
+    for (const [t, n] of source) if (t >= from && t <= to) total += n;
+    return Math.round(total);
   };
-  const current = sum(start.getTime(), end.getTime());
-  const previous = sum(prevStart.getTime(), prevEnd.getTime());
-  return { current, previous, pct: previous ? Math.round(((current - previous) / previous) * 100) : null, label };
+  const current = sum(start.getTime(), end.getTime(), counts);
+  const previous = sum(prevStart.getTime(), prevEnd.getTime(), counts);
+  const tokCurrent = sum(start.getTime(), end.getTime(), tokenCounts);
+  const tokPrevious = sum(prevStart.getTime(), prevEnd.getTime(), tokenCounts);
+  return {
+    current, previous, pct: previous ? Math.round(((current - previous) / previous) * 100) : null, label,
+    tokens: {
+      current: tokCurrent, previous: tokPrevious,
+      pct: tokPrevious ? Math.round(((tokCurrent - tokPrevious) / tokPrevious) * 100) : null,
+    },
+  };
 }
 
 const note = (id: string, text: string, tone = 'muted'): Row =>
@@ -322,8 +334,9 @@ function breakdown(range: string, project: string): Row {
   const { calls, msgs } = current();
   const projects = [...new Set(calls.map((c) => c.directory).filter(Boolean))].sort();
   const empty = { range, label: LABELS[range] ?? LABELS.all, total: 0, skills: [], days: [], tokens: 0, cache: 0,
-    projects, streak: 0, trend: { current: 0, previous: 0, pct: null, label: 'vs previous period' }, expensive: null,
-    totals: { today: 0, week: 0, month: 0, year: 0, all: 0 } };
+    projects, streak: 0, builtAt: current().builtAt,
+    trend: { current: 0, previous: 0, pct: null, label: 'vs previous period', tokens: { current: 0, previous: 0, pct: null } },
+    expensive: null, totals: { today: 0, week: 0, month: 0, year: 0, all: 0 } };
   if (!calls.length) {
     return { ...empty, error: SQLITE_READY()
       ? 'No skill history found yet.'
@@ -344,7 +357,8 @@ function breakdown(range: string, project: string): Row {
   const data = aggregate(scoped, cutoff);
   const sessionDir = new Map(calls.map((c) => [c.session, c.directory]));
   const scopedMsgs = project === ALL_PROJECTS ? msgs : msgs.filter((m) => sessionDir.get(m.s) === project);
-  const segments = tokenSegments(scopedMsgs).filter((seg) => seg.start >= cutoff);
+  const allSegments = tokenSegments(scopedMsgs);
+  const segments = allSegments.filter((seg) => seg.start >= cutoff);
   const tokenTotals = new Map<string, { tokens: number; cache: number; sessions: Set<string> }>();
   for (const seg of segments) {
     const entry = tokenTotals.get(seg.skill) ?? { tokens: 0, cache: 0, sessions: new Set<string>() };
@@ -366,7 +380,7 @@ function breakdown(range: string, project: string): Row {
   });
   const byTokens = [...skills].sort((a, b) => b.tokens - a.tokens)[0];
   const dayInfo = new Map<string, { tokens: number; skills: Set<string> }>();
-  for (const seg of segments) {
+  for (const seg of allSegments) {
     const key = dayKey(seg.start);
     const info = dayInfo.get(key) ?? { tokens: 0, skills: new Set<string>() };
     info.tokens += seg.tokens;
@@ -377,10 +391,15 @@ function breakdown(range: string, project: string): Row {
     const info = dayInfo.get(d.day);
     return { day: d.day, count: d.count, tokens: info?.tokens ?? 0, skills: info ? [...info.skills].sort() : [] };
   });
-  // Streak and week-over-week are always about full history, never the selected range.
-  const allDays = aggregate(scoped, 0).days;
+  // Streak and both trends are always about full history, never the selected range.
+  const allDays: Day[] = aggregate(scoped, 0).days.map((d) => {
+    const info = dayInfo.get(d.day);
+    return { day: d.day, count: d.count, tokens: info?.tokens ?? 0, skills: info ? [...info.skills].sort() : [] };
+  });
+  const tokenByDay = new Map(allDays.map((d) => [d.day, d.tokens]));
   return {
     range,
+    builtAt: current().builtAt,
     label: LABELS[range] ?? LABELS.all,
     project,
     total: data.total,
@@ -390,7 +409,7 @@ function breakdown(range: string, project: string): Row {
     cache: segments.reduce((sum, seg) => sum + seg.cache, 0),
     projects,
     streak: streakOf(allDays),
-    trend: trendOf(allDays, range),
+    trend: trendOf(allDays, range, tokenByDay),
     expensive: byTokens?.tokens ? { id: byTokens.id, tokens: byTokens.tokens, count: byTokens.count } : null,
     totals,
   };

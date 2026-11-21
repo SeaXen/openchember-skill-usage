@@ -1,13 +1,16 @@
 import { connectHost } from '@openchamber/sdk';
-import { applyHostReady, mountButton, mountEmpty, mountSelect, mountSpinner, mountTabs } from '@openchamber/sdk/ui';
+import { applyHostReady, mountButton, mountEmpty, mountSearchField, mountSelect, mountSpinner, mountTabs } from '@openchamber/sdk/ui';
 
 type Skill = { id: string; count: number; share: number; lastUsed: number; tokens: number; cache: number; sessions: number };
 type Day = { day: string; count: number; tokens: number; skills: string[] };
-type Trend = { current: number; previous: number; pct: number | null; label: string };
+type Trend = {
+  current: number; previous: number; pct: number | null; label: string;
+  tokens: { current: number; previous: number; pct: number | null };
+};
 type Metric = 'tokens' | 'count';
 type Breakdown = {
   range: string; label: string; total: number; tokens: number; cache: number;
-  skills: Skill[]; days: Day[]; projects: string[]; streak: number; trend: Trend;
+  skills: Skill[]; days: Day[]; projects: string[]; streak: number; trend: Trend; builtAt: number;
   expensive: { id: string; tokens: number; count: number } | null;
   totals: { today: number; week: number; month: number; year: number; all: number }; error?: string;
 };
@@ -19,6 +22,7 @@ let ready = false;
 let range = 'all';
 let project = ALL;
 let metric: Metric = 'tokens';
+let search = '';
 let canPersist = false;
 let lastData: Breakdown | null = null;
 const PREFS_KEY = 'view';
@@ -31,8 +35,8 @@ async function savePrefs(): Promise<void> {
 
 const RANGES = [
   { id: 'today', label: 'Today' },
-  { id: 'week', label: '7d' },
-  { id: 'month', label: '30d' },
+  { id: 'week', label: 'Week' },
+  { id: 'month', label: 'Month' },
   { id: 'year', label: 'Year' },
   { id: 'all', label: 'All' },
 ];
@@ -109,6 +113,14 @@ function fmtTok(n: number): string {
   return String(n);
 }
 
+function freshness(builtAt: number): string {
+  if (!builtAt) return 'fresh';
+  const secs = Math.max(0, Math.round((Date.now() - builtAt) / 1000));
+  if (secs < 5) return 'just now';
+  if (secs < 60) return `${secs}s ago`;
+  return `${Math.floor(secs / 60)}m ago`;
+}
+
 function ago(ts: number): string {
   if (!ts) return 'never';
   const mins = Math.round((Date.now() - ts) / 60000);
@@ -179,9 +191,14 @@ function draw(data: Breakdown): void {
   const trendText = trend.pct === null
     ? `no data ${trend.label}`
     : `${trend.pct >= 0 ? '+' : ''}${trend.pct}% ${trend.label} (${trend.current} vs ${trend.previous})`;
+  const tokTrend = trend.tokens;
+  const tokTrendText = tokTrend.pct === null
+    ? `no data ${trend.label}`
+    : `${tokTrend.pct >= 0 ? '+' : ''}${tokTrend.pct}% tokens ${trend.label}`;
   const meta = el('div', 'meta');
   meta.append(el('div', '', `${data.label}: ${data.total} uses · ${data.skills.length} skills · top ${data.skills[0].id}`));
-  meta.append(el('div', '', `${fmtTok(data.tokens)} tokens · ${fmtTok(data.cache)} cached · ${data.streak}-day streak · ${trendText}`));
+  meta.append(el('div', '', `${fmtTok(data.tokens)} tokens · ${fmtTok(data.cache)} cached · ${data.streak}-day streak`));
+  meta.append(el('div', '', `${trendText} · ${tokTrendText} · updated ${freshness(data.builtAt)}`));
   if (data.expensive) {
     meta.append(el('div', '', `Most expensive: ${data.expensive.id} · ${fmtTok(data.expensive.tokens)} tok`));
   }
@@ -190,25 +207,40 @@ function draw(data: Breakdown): void {
   const max = data.skills[0].count || 1;
   const all = el('div', 'section');
   all.append(el('div', 'section-title', 'Skills in this period · uses · tokens'));
+  if (data.skills.length > 6) {
+    const searchBox = el('div');
+    mountSearchField(searchBox, {
+      value: search,
+      placeholder: 'Filter skills…',
+      onChange: (value: string) => { search = value; renderSkills(); },
+    });
+    all.append(searchBox);
+  }
   const list = el('div');
-  const addSkills = (items: Skill[]) => {
-    for (const s of items) {
+  const more = el('div', 'more');
+  let expanded = false;
+  const renderSkills = () => {
+    list.replaceChildren();
+    more.replaceChildren();
+    const query = search.trim().toLowerCase();
+    const matched = query ? data.skills.filter((s) => s.id.toLowerCase().includes(query)) : data.skills;
+    const shown = expanded ? matched : matched.slice(0, 6);
+    for (const s of shown) {
       const row = bar(s.id, `${s.count}× · ${s.share}% · ${fmtTok(s.tokens)} tok`, (s.count / max) * 100);
       row.title = `last used ${ago(s.lastUsed)} · ${s.sessions} session(s) · ${fmtTok(s.cache)} cache read`;
       list.append(row);
     }
+    if (!shown.length) list.append(el('div', 'sub', 'No matching skill.'));
+    if (!expanded && matched.length > 6) {
+      mountButton(more, {
+        label: `Show ${matched.length - 6} more`,
+        variant: 'ghost', size: 'xs',
+        onClick: () => { expanded = true; renderSkills(); },
+      });
+    }
   };
-  addSkills(data.skills.slice(0, 6));
-  all.append(list);
-  if (data.skills.length > 6) {
-    const more = el('div');
-    mountButton(more, {
-      label: `Show ${data.skills.length - 6} more`,
-      variant: 'ghost', size: 'xs',
-      onClick: () => { addSkills(data.skills.slice(6)); more.remove(); },
-    });
-    all.append(more);
-  }
+  all.append(list, more);
+  renderSkills();
   root.append(all);
 
   const active = data.days.filter((d) => d.count > 0);

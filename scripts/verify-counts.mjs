@@ -81,7 +81,11 @@ try {
   check('per-skill counts (alpha 2, beta 1, delta 1)',
     skills.alpha?.count === 2 && skills.beta?.count === 1 && skills.delta?.count === 1);
   check('multi-skill turn splits tokens (delta 200)', skills.delta?.tokens === 200);
-  check('streak and trend present', typeof all.body.streak === 'number' && Boolean(all.body.trend));
+  check('streak, trend and token trend present',
+    typeof all.body.streak === 'number' &&
+    typeof all.body.trend?.current === 'number' &&
+    typeof all.body.trend?.tokens?.current === 'number');
+  check('freshness timestamp present', typeof all.body.builtAt === 'number');
   check('projects only from successful uses', all.body.projects?.length === 2);
 
   const status = await get('/status');
