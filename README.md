@@ -15,7 +15,10 @@ A compact leaderboard of your most-used skills with counts and bars. Always all-
 - A GitHub-style activity heatmap coloured by tokens or by number of uses (toggle in the section header). Hover a square for the date, uses, tokens, and skills involved.
 - "Skills in this period" — ranked list with use count, share, tokens, last used, and sessions, with a filter box when there are many skills.
 - "Skills used by day" — which skills were used on each active day.
-- "Last used: …" / recent skill log — a chronological list of individual skill loads with relative time, skill name, and project. Hover an entry for the exact timestamp and session.
+- "Last used: …" / recent skill log — a chronological list of individual skill loads with relative time, skill name, and the session title. Hover an entry for the exact timestamp, project and session ID.
+- "When · by hour" — a 24-hour strip showing when you use skills.
+- "Movement" — skills rising and falling versus the previous equivalent period.
+- Click any skill in the ranked list to filter the day list and the log to that skill; click again, or use "clear", to reset.
 - Streak and comparison against the previous equivalent period for **both uses and tokens** ("vs yesterday", "vs prior 30 days", etc.).
 - "Updated … ago" freshness note so you can see how current the numbers are.
 - Most expensive skill by tokens.

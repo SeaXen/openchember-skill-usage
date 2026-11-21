@@ -31,7 +31,8 @@ var CALLS = `
 SELECT sm.session_id AS session,
        json_extract(je.value, '$.state.input.id') AS skill_id,
        json_extract(sm.data, '$.time.created') AS t,
-       v.directory AS directory
+       v.directory AS directory,
+       v.title AS title
 FROM session_message AS sm
 JOIN json_each(json_extract(sm.data, '$.content')) AS je
   ON json_extract(je.value, '$.type') = 'tool'
@@ -64,7 +65,8 @@ SELECT sm.session_id AS s, sm.seq AS q, sm.time_created AS t,
      + COALESCE(json_extract(sm.data, '$.tokens.reasoning'), 0) AS tok,
        COALESCE(json_extract(sm.data, '$.tokens.cache.read'), 0) AS cache,
        json_extract(je.value, '$.state.input.id') AS skill,
-       v.directory AS directory
+       v.directory AS directory,
+       v.title AS title
 FROM session_message AS sm
 LEFT JOIN json_each(json_extract(sm.data, '$.content')) AS je
   ON json_extract(je.value, '$.type') = 'tool'
@@ -98,7 +100,7 @@ function readMessages(sessions) {
 }
 var CACHE = path.join(os.homedir(), ".config", "openchamber", "guest-data", "skill-usage", "stats.json");
 var FRESH_MS = 5000;
-var VERSION = 3;
+var VERSION = 4;
 var snapshot = null;
 function saveSnapshot(next) {
   snapshot = next;
@@ -154,7 +156,8 @@ function refresh() {
         session: m.s,
         t: m.t,
         skill_id: m.skill,
-        directory: m.directory ?? ""
+        directory: m.directory ?? "",
+        title: m.title ?? ""
       });
   }
   return saveSnapshot({
@@ -281,9 +284,7 @@ function streakOf(days) {
   }
   return n;
 }
-function trendOf(allDays, range, tokenByDay) {
-  const counts = new Map(allDays.map((d) => [Date.parse(`${d.day}T00:00:00`), d.count]));
-  const tokenCounts = new Map(allDays.map((d) => [Date.parse(`${d.day}T00:00:00`), tokenByDay.get(d.day) ?? 0]));
+function boundsFor(allDays, range) {
   const today = new Date(midnight());
   let start, prevStart, prevEnd, end = today, label;
   if (range === "today") {
@@ -309,13 +310,7 @@ function trendOf(allDays, range, tokenByDay) {
   } else {
     const active = allDays.filter((d) => d.count > 0);
     if (!active.length)
-      return {
-        current: 0,
-        previous: 0,
-        pct: null,
-        label: "vs previous period",
-        tokens: { current: 0, previous: 0, pct: null }
-      };
+      return { start: today, end: today, prevStart: today, prevEnd: today, label: "vs previous period" };
     start = new Date(`${active[active.length - 1].day}T00:00:00`);
     end = new Date(`${active[0].day}T00:00:00`);
     const length = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
@@ -325,6 +320,12 @@ function trendOf(allDays, range, tokenByDay) {
     prevStart.setDate(prevStart.getDate() - (length - 1));
     label = "vs previous period";
   }
+  return { start, end, prevStart, prevEnd, label };
+}
+function trendOf(allDays, range, tokenByDay) {
+  const counts = new Map(allDays.map((d) => [Date.parse(`${d.day}T00:00:00`), d.count]));
+  const tokenCounts = new Map(allDays.map((d) => [Date.parse(`${d.day}T00:00:00`), tokenByDay.get(d.day) ?? 0]));
+  const b = boundsFor(allDays, range);
   const sum = (from, to, source) => {
     let total = 0;
     for (const [t, n] of source)
@@ -332,21 +333,39 @@ function trendOf(allDays, range, tokenByDay) {
         total += n;
     return Math.round(total);
   };
-  const current = sum(start.getTime(), end.getTime(), counts);
-  const previous = sum(prevStart.getTime(), prevEnd.getTime(), counts);
-  const tokCurrent = sum(start.getTime(), end.getTime(), tokenCounts);
-  const tokPrevious = sum(prevStart.getTime(), prevEnd.getTime(), tokenCounts);
+  const current = sum(b.start.getTime(), b.end.getTime(), counts);
+  const previous = sum(b.prevStart.getTime(), b.prevEnd.getTime(), counts);
+  const tokCurrent = sum(b.start.getTime(), b.end.getTime(), tokenCounts);
+  const tokPrevious = sum(b.prevStart.getTime(), b.prevEnd.getTime(), tokenCounts);
   return {
     current,
     previous,
     pct: previous ? Math.round((current - previous) / previous * 100) : null,
-    label,
+    label: b.label,
     tokens: {
       current: tokCurrent,
       previous: tokPrevious,
       pct: tokPrevious ? Math.round((tokCurrent - tokPrevious) / tokPrevious * 100) : null
     }
   };
+}
+function momentumOf(calls, b) {
+  const current = new Map;
+  const previous = new Map;
+  for (const c of calls) {
+    const t = c.t;
+    if (t >= b.start.getTime() && t <= b.end.getTime())
+      current.set(c.skill_id, (current.get(c.skill_id) ?? 0) + 1);
+    else if (t >= b.prevStart.getTime() && t <= b.prevEnd.getTime())
+      previous.set(c.skill_id, (previous.get(c.skill_id) ?? 0) + 1);
+  }
+  const rows = [...new Set([...current.keys(), ...previous.keys()])].map((id) => ({
+    id,
+    current: current.get(id) ?? 0,
+    previous: previous.get(id) ?? 0,
+    delta: (current.get(id) ?? 0) - (previous.get(id) ?? 0)
+  })).filter((r) => r.delta !== 0).sort((a, z) => Math.abs(z.delta) - Math.abs(a.delta));
+  return { up: rows.filter((r) => r.delta > 0).slice(0, 3), down: rows.filter((r) => r.delta < 0).slice(0, 3) };
 }
 var note = (id, text, tone = "muted") => ({ kind: "note", id, text, tone });
 function statusRows() {
@@ -387,6 +406,8 @@ function breakdown(range, project) {
     builtAt: current().builtAt,
     log: [],
     logTotal: 0,
+    hours: Array(24).fill(0),
+    momentum: { up: [], down: [] },
     trend: { current: 0, previous: 0, pct: null, label: "vs previous period", tokens: { current: 0, previous: 0, pct: null } },
     expensive: null,
     totals: { today: 0, week: 0, month: 0, year: 0, all: 0 }
@@ -449,12 +470,20 @@ function breakdown(range, project) {
   });
   const tokenByDay = new Map(allDays.map((d) => [d.day, d.tokens]));
   const inRange = scoped.filter((c) => c.t >= cutoff);
-  const log = [...inRange].sort((a, b) => b.t - a.t).slice(0, 20).map((c) => ({ id: c.skill_id, t: c.t, directory: c.directory, session: c.session }));
+  const log = [...inRange].sort((a, b) => b.t - a.t).slice(0, 20).map((c) => ({ id: c.skill_id, t: c.t, directory: c.directory, session: c.session, title: c.title ?? "" }));
+  const hours = Array(24).fill(0);
+  for (const c of scoped) {
+    if (c.t >= cutoff)
+      hours[new Date(c.t).getHours()]++;
+  }
+  const momentum = momentumOf(scoped, boundsFor(allDays, range));
   return {
     range,
     builtAt: current().builtAt,
     log,
     logTotal: inRange.length,
+    hours,
+    momentum,
     label: LABELS[range] ?? LABELS.all,
     project,
     total: data.total,

@@ -19,7 +19,7 @@ db.exec(`
     id TEXT PRIMARY KEY, session_id TEXT, type TEXT, seq INTEGER,
     time_created INTEGER, time_updated INTEGER, data TEXT
   );
-  CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT);
+  CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT, title TEXT);
 `);
 const now = Date.now();
 const part = (id, status = 'completed') => ({
@@ -40,8 +40,10 @@ insert('m2', 's1', 2, now + 1000, 200, []);
 insert('m3', 's1', 3, now + 2000, 10, [part('beta')]);
 insert('m4', 's2', 1, now + 3000, 500, [part('gamma', 'error')]);
 insert('m5', 's3', 1, now + 4000, 400, [part('alpha'), part('delta')]);
-for (const [id, dir] of [['s1', '/proj/one'], ['s2', '/proj/two'], ['s3', '/proj/three']]) {
-  db.prepare('INSERT INTO session_v2 VALUES (?,?)').run(id, dir);
+for (const [id, dir, title] of [
+  ['s1', '/proj/one', 'Alpha task'], ['s2', '/proj/two', 'Beta task'], ['s3', '/proj/three', 'Gamma task'],
+]) {
+  db.prepare('INSERT INTO session_v2 VALUES (?,?,?)').run(id, dir, title);
 }
 db.close();
 
@@ -89,6 +91,10 @@ try {
   check('recent log is newest-first and excludes failed calls',
     Array.isArray(all.body.log) && all.body.log.length >= 4 &&
     all.body.log[0].t >= all.body.log[1].t && !all.body.log.some((e) => e.id === 'gamma'));
+  check('log carries session titles', all.body.log.some((e) => e.title === 'Alpha task'));
+  check('hourly counts and momentum present',
+    Array.isArray(all.body.hours) && all.body.hours.length === 24 &&
+    all.body.hours.some((h) => h > 0) && Array.isArray(all.body.momentum?.up));
   check('projects only from successful uses', all.body.projects?.length === 2);
 
   const status = await get('/status');

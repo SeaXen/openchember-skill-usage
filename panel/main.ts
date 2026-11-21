@@ -3,7 +3,8 @@ import { applyHostReady, mountButton, mountEmpty, mountSearchField, mountSelect,
 
 type Skill = { id: string; count: number; share: number; lastUsed: number; tokens: number; cache: number; sessions: number };
 type Day = { day: string; count: number; tokens: number; skills: string[] };
-type LogEntry = { id: string; t: number; directory: string; session: string };
+type LogEntry = { id: string; t: number; directory: string; session: string; title: string };
+type Momentum = { id: string; current: number; previous: number; delta: number };
 type Trend = {
   current: number; previous: number; pct: number | null; label: string;
   tokens: { current: number; previous: number; pct: number | null };
@@ -12,7 +13,8 @@ type Metric = 'tokens' | 'count';
 type Breakdown = {
   range: string; label: string; total: number; tokens: number; cache: number;
   skills: Skill[]; days: Day[]; projects: string[]; streak: number; trend: Trend; builtAt: number;
-  log: LogEntry[]; logTotal: number;
+  log: LogEntry[]; logTotal: number; hours: number[];
+  momentum: { up: Momentum[]; down: Momentum[] };
   expensive: { id: string; tokens: number; count: number } | null;
   totals: { today: number; week: number; month: number; year: number; all: number }; error?: string;
 };
@@ -27,6 +29,7 @@ let metric: Metric = 'tokens';
 let search = '';
 let expanded = false;
 let expandedLog = false;
+let skillFilter = '';
 let canPersist = false;
 let lastData: Breakdown | null = null;
 const PREFS_KEY = 'view';
@@ -144,6 +147,25 @@ function weekBars(days: Day[]): HTMLElement {
     wrap.append(col);
   }
   return wrap;
+}
+
+function hourBars(hours: number[]): HTMLElement {
+  const wrap = el('div', 'hour-bars');
+  const max = Math.max(...hours, 1);
+  hours.forEach((count, hour) => {
+    const col = el('div', 'hour-col');
+    const fill = el('div', 'hour-bar');
+    fill.style.height = count ? `${Math.max(8, (count / max) * 100)}%` : '0';
+    fill.title = `${String(hour).padStart(2, '0')}:00 · ${count} use(s)`;
+    col.append(fill);
+    wrap.append(col);
+  });
+  const box = el('div');
+  box.append(wrap);
+  const axis = el('div', 'hour-axis');
+  for (const label of ['00', '06', '12', '18', '23']) axis.append(el('span', '', label));
+  box.append(axis);
+  return box;
 }
 
 function fmtTok(n: number): string {
@@ -278,9 +300,26 @@ function draw(data: Breakdown): void {
   meta.append(line1, line2);
   root.append(meta);
 
+  if (data.momentum?.up?.length || data.momentum?.down?.length) {
+    const parts: string[] = [];
+    for (const m of data.momentum.up) parts.push(`↑ ${m.id} +${m.delta}`);
+    for (const m of data.momentum.down) parts.push(`↓ ${m.id} ${m.delta}`);
+    root.append(el('div', 'sub', `Movement: ${parts.join(' · ')}`));
+  }
+
   const max = data.skills[0].count || 1;
   const all = el('div', 'section');
-  all.append(el('div', 'section-title', 'Skills in this period · uses · tokens'));
+  const skillsHead = el('div', 'toolbar');
+  skillsHead.append(el('div', 'section-title', 'Skills in this period · uses · tokens'));
+  if (skillFilter) {
+    const clear = el('div', 'refresh');
+    mountButton(clear, {
+      label: `clear: ${skillFilter} ×`, variant: 'ghost', size: 'xs',
+      onClick: () => { skillFilter = ''; if (lastData) draw(lastData); },
+    });
+    skillsHead.append(clear);
+  }
+  all.append(skillsHead);
   if (data.skills.length > 6) {
     const searchBox = el('div');
     mountSearchField(searchBox, {
@@ -300,7 +339,13 @@ function draw(data: Breakdown): void {
     const shown = expanded ? matched : matched.slice(0, 6);
     for (const s of shown) {
       const row = bar(s.id, `${s.count}× · ${s.share}% · ${fmtTok(s.tokens)} tok`, (s.count / max) * 100);
-      row.title = `last used ${ago(s.lastUsed)} · ${s.sessions} session(s) · ${fmtTok(s.cache)} cache read`;
+      row.title = `click to filter · last used ${ago(s.lastUsed)} · ${s.sessions} session(s) · ${fmtTok(s.cache)} cache read`;
+      row.dataset.clickable = 'true';
+      row.dataset.selected = String(skillFilter === s.id);
+      row.onclick = () => {
+        skillFilter = skillFilter === s.id ? '' : s.id;
+        if (lastData) draw(lastData);
+      };
       list.append(row);
     }
     if (!shown.length) list.append(el('div', 'sub', 'No matching skill.'));
@@ -316,7 +361,8 @@ function draw(data: Breakdown): void {
   renderSkills();
   root.append(all);
 
-  const active = data.days.filter((d) => d.count > 0);
+  const active = data.days.filter((d) =>
+    d.count > 0 && (!skillFilter || d.skills.includes(skillFilter)));
   if (active.length && range !== 'today') {
     const recent = el('div', 'section');
     const recentHead = el('div', 'toolbar');
@@ -363,29 +409,37 @@ function draw(data: Breakdown): void {
     root.append(detail);
   }
 
-  if (data.log?.length) {
+  if (data.hours?.some((h) => h > 0)) {
+    const when = el('div', 'section');
+    when.append(el('div', 'section-title', 'When · by hour'));
+    when.append(hourBars(data.hours));
+    root.append(when);
+  }
+
+  const log = skillFilter ? data.log.filter((e) => e.id === skillFilter) : data.log;
+  if (log?.length) {
     const logSection = el('div', 'section');
-    const last = data.log[0];
+    const last = log[0];
     logSection.append(el('div', 'section-title', `Last used: ${last.id} · ${ago(last.t)}`));
     const logList = el('div');
     const more = el('div', 'more');
     const renderLog = () => {
       logList.replaceChildren();
       more.replaceChildren();
-      const shown = expandedLog ? data.log : data.log.slice(0, 8);
+      const shown = expandedLog ? log : log.slice(0, 8);
       for (const entry of shown) {
         const row = el('div', 'log-row');
         row.append(
           el('span', 'log-time', ago(entry.t)),
           el('span', 'log-skill', entry.id),
-          el('span', 'log-proj', shortPath(entry.directory)),
+          el('span', 'log-proj', entry.title || shortPath(entry.directory)),
         );
-        row.title = `${new Date(entry.t).toLocaleString()} · session ${entry.session}`;
+        row.title = `${new Date(entry.t).toLocaleString()} · ${shortPath(entry.directory)} · session ${entry.session}`;
         logList.append(row);
       }
-      if (!expandedLog && data.log.length > 8) {
+      if (!expandedLog && log.length > 8) {
         mountButton(more, {
-          label: `Show ${data.log.length - 8} more`,
+          label: `Show ${log.length - 8} more`,
           variant: 'ghost', size: 'xs',
           onClick: () => { expandedLog = true; renderLog(); },
         });
