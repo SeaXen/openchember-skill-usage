@@ -41,6 +41,38 @@ JOIN json_each(json_extract(sm.data, '$.content')) AS je
 LEFT JOIN session_v2 AS v ON v.id = sm.session_id
 WHERE sm.type = 'assistant'
 `;
+var INJECTED = `
+SELECT sm.session_id AS session,
+       json_extract(sm.data, '$.time.created') AS t,
+       sm.time_created AS tc,
+       v.directory AS directory,
+       v.title AS title,
+       json_extract(je.value, '$.id') AS skill_id
+FROM session_message AS sm
+LEFT JOIN json_each(json_extract(sm.data, '$.skills')) AS je
+LEFT JOIN session_v2 AS v ON v.id = sm.session_id
+WHERE sm.type = 'user' AND sm.data LIKE '%"skills"%'
+  __FILTER__
+`;
+var INJECTED_DELTA = INJECTED.replace("__FILTER__", "AND sm.time_created > ?");
+function readInjected() {
+  if (!SQLITE_READY())
+    return null;
+  const dbPath = findDb();
+  if (!dbPath)
+    return null;
+  const sql = INJECTED.replace("__FILTER__", "");
+  try {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      return db.prepare(sql).all().filter((i) => i.skill_id && i.t);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
 function readCalls() {
   if (!SQLITE_READY())
     return null;
@@ -100,7 +132,7 @@ function readMessages(sessions) {
 }
 var CACHE = path.join(os.homedir(), ".config", "openchamber", "guest-data", "skill-usage", "stats.json");
 var FRESH_MS = 5000;
-var VERSION = 4;
+var VERSION = 5;
 var snapshot = null;
 function saveSnapshot(next) {
   snapshot = next;
@@ -113,7 +145,7 @@ function saveSnapshot(next) {
 function readDisk() {
   try {
     const cached = JSON.parse(fs.readFileSync(CACHE, "utf8"));
-    if (cached.version === VERSION && Array.isArray(cached.calls) && Array.isArray(cached.msgs))
+    if (cached.version === VERSION && Array.isArray(cached.calls) && Array.isArray(cached.msgs) && Array.isArray(cached.injected))
       return cached;
   } catch {}
   return null;
@@ -122,8 +154,9 @@ function rebuild() {
   const calls = readCalls() ?? [];
   const sessions = [...new Set(calls.map((c) => c.session))];
   const msgs = readMessages(sessions) ?? [];
-  const watermark = Math.max(0, ...calls.map((c) => c.t), ...msgs.map((m) => m.t));
-  return saveSnapshot({ version: VERSION, builtAt: Date.now(), watermark, calls, msgs });
+  const injected = readInjected() ?? [];
+  const watermark = Math.max(0, ...calls.map((c) => c.t), ...msgs.map((m) => m.t), ...injected.map((i) => i.tc));
+  return saveSnapshot({ version: VERSION, builtAt: Date.now(), watermark, calls, msgs, injected });
 }
 var LOOKBACK_MS = 300000;
 function refresh() {
@@ -137,10 +170,12 @@ function refresh() {
   if (!dbPath)
     return base;
   let delta = [];
+  let injectedDelta = [];
   try {
     const db = new DatabaseSync(dbPath, { readOnly: true });
     try {
       delta = db.prepare(DELTA).all(watermark - LOOKBACK_MS);
+      injectedDelta = db.prepare(INJECTED_DELTA).all(watermark - LOOKBACK_MS);
     } finally {
       db.close();
     }
@@ -160,12 +195,16 @@ function refresh() {
         title: m.title ?? ""
       });
   }
+  const injected = new Map((base.injected ?? []).map((i) => [`${i.session}\x00${i.t}\x00${i.skill_id}`, i]));
+  for (const i of injectedDelta)
+    injected.set(`${i.session}\x00${i.t}\x00${i.skill_id}`, i);
   return saveSnapshot({
     version: VERSION,
     builtAt: Date.now(),
-    watermark: Math.max(watermark, ...delta.map((m) => m.t)),
+    watermark: Math.max(watermark, ...delta.map((m) => m.t), ...injectedDelta.map((i) => i.tc)),
     calls: [...calls.values()],
-    msgs: [...msgs.values()]
+    msgs: [...msgs.values()],
+    injected: [...injected.values()]
   });
 }
 function current() {
@@ -368,10 +407,26 @@ function momentumOf(calls, b) {
   return { up: rows.filter((r) => r.delta > 0).slice(0, 3), down: rows.filter((r) => r.delta < 0).slice(0, 3) };
 }
 var note = (id, text, tone = "muted") => ({ kind: "note", id, text, tone });
-function statusRows() {
+function withAuto(snapshot, includeAuto) {
+  if (!includeAuto)
+    return snapshot.calls;
+  return [
+    ...snapshot.calls,
+    ...snapshot.injected.map((i) => ({
+      skill_id: i.skill_id,
+      t: i.t,
+      session: i.session,
+      directory: i.directory,
+      title: i.title,
+      auto: true
+    }))
+  ];
+}
+function statusRows(includeAuto) {
   if (!SQLITE_READY())
     return [note("unsupported", "Needs Node 22.5+ with node:sqlite.", "warning")];
-  const calls = current().calls;
+  const snapshot = current();
+  const calls = withAuto(snapshot, includeAuto);
   if (!calls.length)
     return [note("db", "No skill history found yet. Load a skill and it will appear here.")];
   const data = aggregate(calls, 0);
@@ -390,8 +445,10 @@ function statusRows() {
   }
   return rows;
 }
-function breakdown(range, project) {
-  const { calls, msgs } = current();
+function breakdown(range, project, includeAuto) {
+  const snapshot = current();
+  const { msgs } = snapshot;
+  const calls = withAuto(snapshot, includeAuto);
   const projects = [...new Set(calls.map((c) => c.directory).filter(Boolean))].sort();
   const empty = {
     range,
@@ -403,9 +460,12 @@ function breakdown(range, project) {
     cache: 0,
     projects,
     streak: 0,
-    builtAt: current().builtAt,
+    builtAt: snapshot.builtAt,
     log: [],
     logTotal: 0,
+    loadedTotal: snapshot.calls.length,
+    injectedTotal: snapshot.injected.length,
+    includeAuto,
     hours: Array(24).fill(0),
     momentum: { up: [], down: [] },
     trend: { current: 0, previous: 0, pct: null, label: "vs previous period", tokens: { current: 0, previous: 0, pct: null } },
@@ -470,7 +530,14 @@ function breakdown(range, project) {
   });
   const tokenByDay = new Map(allDays.map((d) => [d.day, d.tokens]));
   const inRange = scoped.filter((c) => c.t >= cutoff);
-  const log = [...inRange].sort((a, b) => b.t - a.t).slice(0, 20).map((c) => ({ id: c.skill_id, t: c.t, directory: c.directory, session: c.session, title: c.title ?? "" }));
+  const log = [...inRange].sort((a, b) => b.t - a.t).slice(0, 20).map((c) => ({
+    id: c.skill_id,
+    t: c.t,
+    directory: c.directory,
+    session: c.session,
+    title: c.title ?? "",
+    auto: c.auto === true
+  }));
   const hours = Array(24).fill(0);
   for (const c of scoped) {
     if (c.t >= cutoff)
@@ -482,6 +549,9 @@ function breakdown(range, project) {
     builtAt: current().builtAt,
     log,
     logTotal: inRange.length,
+    loadedTotal: snapshot.calls.length,
+    injectedTotal: snapshot.injected.length,
+    includeAuto,
     hours,
     momentum,
     label: LABELS[range] ?? LABELS.all,
@@ -508,14 +578,15 @@ http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
     return;
   }
+  const includeAuto = url.searchParams.get("source") === "auto";
   if (req.method === "GET" && url.pathname === "/status") {
-    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ rows: statusRows() }));
+    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ rows: statusRows(includeAuto) }));
     return;
   }
   if (req.method === "GET" && url.pathname === "/breakdown") {
     if (url.searchParams.get("force") === "1")
       rebuild();
-    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(breakdown(url.searchParams.get("range") ?? "all", url.searchParams.get("project") ?? ALL_PROJECTS)));
+    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(breakdown(url.searchParams.get("range") ?? "all", url.searchParams.get("project") ?? ALL_PROJECTS, includeAuto)));
     return;
   }
   res.writeHead(404).end();

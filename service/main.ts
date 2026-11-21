@@ -13,11 +13,12 @@ const SQLITE_READY = () => DatabaseSync !== null;
 const token = process.env.OPENCHAMBER_SERVICE_TOKEN;
 const ALL_PROJECTS = '__all__';
 
-type Call = { skill_id: string; t: number; session: string; directory: string; title: string };
+type Call = { skill_id: string; t: number; session: string; directory: string; title: string; auto?: boolean };
+type Injected = Call & { tc: number };
 type Msg = { s: string; q: number; t: number; tok: number; cache: number; skill: string | null; directory: string; title: string };
 type Segment = { skill: string; start: number; tokens: number; cache: number; session: string };
 type Day = { day: string; count: number; tokens: number; skills: string[] };
-type LogEntry = { id: string; t: number; directory: string; session: string; title: string };
+type LogEntry = { id: string; t: number; directory: string; session: string; title: string; auto: boolean };
 type Row = Record<string, unknown>;
 
 // OpenCode and OpenChamber both write skill tool calls to this database.
@@ -45,6 +46,34 @@ JOIN json_each(json_extract(sm.data, '$.content')) AS je
 LEFT JOIN session_v2 AS v ON v.id = sm.session_id
 WHERE sm.type = 'assistant'
 `;
+
+// OpenChamber injects skill content into user messages as a `skills` array.
+const INJECTED = `
+SELECT sm.session_id AS session,
+       json_extract(sm.data, '$.time.created') AS t,
+       sm.time_created AS tc,
+       v.directory AS directory,
+       v.title AS title,
+       json_extract(je.value, '$.id') AS skill_id
+FROM session_message AS sm
+LEFT JOIN json_each(json_extract(sm.data, '$.skills')) AS je
+LEFT JOIN session_v2 AS v ON v.id = sm.session_id
+WHERE sm.type = 'user' AND sm.data LIKE '%"skills"%'
+  __FILTER__
+`;
+const INJECTED_DELTA = INJECTED.replace('__FILTER__', 'AND sm.time_created > ?');
+
+function readInjected(): Injected[] | null {
+  if (!SQLITE_READY()) return null;
+  const dbPath = findDb();
+  if (!dbPath) return null;
+  const sql = INJECTED.replace('__FILTER__', '');
+  try {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try { return (db.prepare(sql).all() as unknown as Injected[]).filter((i) => i.skill_id && i.t); }
+    finally { db.close(); }
+  } catch { return null; }
+}
 
 function readCalls(): Call[] | null {
   if (!SQLITE_READY()) return null;
@@ -95,8 +124,8 @@ function readMessages(sessions: string[]): Msg[] | null {
 // Compact snapshot kept outside the package, so opening the panel does not rescan the database.
 const CACHE = path.join(os.homedir(), '.config', 'openchamber', 'guest-data', 'skill-usage', 'stats.json');
 const FRESH_MS = 5_000;
-const VERSION = 4;
-type Snapshot = { version: number; builtAt: number; watermark: number; calls: Call[]; msgs: Msg[] };
+const VERSION = 5;
+type Snapshot = { version: number; builtAt: number; watermark: number; calls: Call[]; msgs: Msg[]; injected: Injected[] };
 let snapshot: Snapshot | null = null;
 
 function saveSnapshot(next: Snapshot): Snapshot {
@@ -111,7 +140,7 @@ function saveSnapshot(next: Snapshot): Snapshot {
 function readDisk(): Snapshot | null {
   try {
     const cached = JSON.parse(fs.readFileSync(CACHE, 'utf8')) as Snapshot;
-    if (cached.version === VERSION && Array.isArray(cached.calls) && Array.isArray(cached.msgs)) return cached;
+    if (cached.version === VERSION && Array.isArray(cached.calls) && Array.isArray(cached.msgs) && Array.isArray(cached.injected)) return cached;
   } catch { /* no cache yet */ }
   return null;
 }
@@ -120,8 +149,9 @@ function rebuild(): Snapshot {
   const calls = readCalls() ?? [];
   const sessions = [...new Set(calls.map((c) => c.session))];
   const msgs = readMessages(sessions) ?? [];
-  const watermark = Math.max(0, ...calls.map((c) => c.t), ...msgs.map((m) => m.t));
-  return saveSnapshot({ version: VERSION, builtAt: Date.now(), watermark, calls, msgs });
+  const injected = readInjected() ?? [];
+  const watermark = Math.max(0, ...calls.map((c) => c.t), ...msgs.map((m) => m.t), ...injected.map((i) => i.tc));
+  return saveSnapshot({ version: VERSION, builtAt: Date.now(), watermark, calls, msgs, injected });
 }
 
 // Only messages newer than the watermark are read; the index keeps this small.
@@ -134,10 +164,13 @@ function refresh(): Snapshot {
   const dbPath = findDb();
   if (!dbPath) return base;
   let delta: Msg[] = [];
+  let injectedDelta: Injected[] = [];
   try {
     const db = new DatabaseSync(dbPath, { readOnly: true });
-    try { delta = db.prepare(DELTA).all(watermark - LOOKBACK_MS) as unknown as Msg[]; }
-    finally { db.close(); }
+    try {
+      delta = db.prepare(DELTA).all(watermark - LOOKBACK_MS) as unknown as Msg[];
+      injectedDelta = db.prepare(INJECTED_DELTA).all(watermark - LOOKBACK_MS) as unknown as Injected[];
+    } finally { db.close(); }
   } catch { return base; }
 
   const msgs = new Map(base.msgs.map((m) => [`${m.s}\u0000${m.q}`, m]));
@@ -148,12 +181,15 @@ function refresh(): Snapshot {
       session: m.s, t: m.t, skill_id: m.skill, directory: m.directory ?? '', title: m.title ?? '',
     });
   }
+  const injected = new Map((base.injected ?? []).map((i) => [`${i.session}\u0000${i.t}\u0000${i.skill_id}`, i]));
+  for (const i of injectedDelta) injected.set(`${i.session}\u0000${i.t}\u0000${i.skill_id}`, i);
   return saveSnapshot({
     version: VERSION,
     builtAt: Date.now(),
-    watermark: Math.max(watermark, ...delta.map((m) => m.t)),
+    watermark: Math.max(watermark, ...delta.map((m) => m.t), ...injectedDelta.map((i) => i.tc)),
     calls: [...calls.values()],
     msgs: [...msgs.values()],
+    injected: [...injected.values()],
   });
 }
 
@@ -325,9 +361,20 @@ function momentumOf(calls: Call[], b: Bounds) {
 const note = (id: string, text: string, tone = 'muted'): Row =>
   ({ kind: 'note', id, text, tone });
 
-function statusRows(): Row[] {
+function withAuto(snapshot: Snapshot, includeAuto: boolean): Call[] {
+  if (!includeAuto) return snapshot.calls;
+  return [
+    ...snapshot.calls,
+    ...snapshot.injected.map((i) => ({
+      skill_id: i.skill_id, t: i.t, session: i.session, directory: i.directory, title: i.title, auto: true,
+    })),
+  ];
+}
+
+function statusRows(includeAuto: boolean): Row[] {
   if (!SQLITE_READY()) return [note('unsupported', 'Needs Node 22.5+ with node:sqlite.', 'warning')];
-  const calls = current().calls;
+  const snapshot = current();
+  const calls = withAuto(snapshot, includeAuto);
   if (!calls.length) return [note('db', 'No skill history found yet. Load a skill and it will appear here.')];
   const data = aggregate(calls, 0);
   if (!data.skills.length) return [note('empty', 'No skills used yet. Skills you load show up here.')];
@@ -346,11 +393,14 @@ function statusRows(): Row[] {
   return rows;
 }
 
-function breakdown(range: string, project: string): Row {
-  const { calls, msgs } = current();
+function breakdown(range: string, project: string, includeAuto: boolean): Row {
+  const snapshot = current();
+  const { msgs } = snapshot;
+  const calls = withAuto(snapshot, includeAuto);
   const projects = [...new Set(calls.map((c) => c.directory).filter(Boolean))].sort();
   const empty = { range, label: LABELS[range] ?? LABELS.all, total: 0, skills: [], days: [], tokens: 0, cache: 0,
-    projects, streak: 0, builtAt: current().builtAt, log: [], logTotal: 0,
+    projects, streak: 0, builtAt: snapshot.builtAt, log: [], logTotal: 0,
+    loadedTotal: snapshot.calls.length, injectedTotal: snapshot.injected.length, includeAuto,
     hours: Array(24).fill(0), momentum: { up: [], down: [] },
     trend: { current: 0, previous: 0, pct: null, label: 'vs previous period', tokens: { current: 0, previous: 0, pct: null } },
     expensive: null, totals: { today: 0, week: 0, month: 0, year: 0, all: 0 } };
@@ -418,7 +468,9 @@ function breakdown(range: string, project: string): Row {
   const log: LogEntry[] = [...inRange]
     .sort((a, b) => b.t - a.t)
     .slice(0, 20)
-    .map((c) => ({ id: c.skill_id, t: c.t, directory: c.directory, session: c.session, title: c.title ?? '' }));
+    .map((c) => ({
+      id: c.skill_id, t: c.t, directory: c.directory, session: c.session, title: c.title ?? '', auto: c.auto === true,
+    }));
   const hours = Array<number>(24).fill(0);
   for (const c of scoped) {
     if (c.t >= cutoff) hours[new Date(c.t).getHours()]++;
@@ -429,6 +481,9 @@ function breakdown(range: string, project: string): Row {
     builtAt: current().builtAt,
     log,
     logTotal: inRange.length,
+    loadedTotal: snapshot.calls.length,
+    injectedTotal: snapshot.injected.length,
+    includeAuto,
     hours,
     momentum,
     label: LABELS[range] ?? LABELS.all,
@@ -450,8 +505,9 @@ http.createServer((req, res) => {
   if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(401).end(); return; }
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}'); return; }
+  const includeAuto = url.searchParams.get('source') === 'auto';
   if (req.method === 'GET' && url.pathname === '/status') {
-    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ rows: statusRows() }));
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ rows: statusRows(includeAuto) }));
     return;
   }
   if (req.method === 'GET' && url.pathname === '/breakdown') {
@@ -459,6 +515,7 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(breakdown(
       url.searchParams.get('range') ?? 'all',
       url.searchParams.get('project') ?? ALL_PROJECTS,
+      includeAuto,
     )));
     return;
   }

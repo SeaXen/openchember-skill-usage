@@ -40,6 +40,10 @@ insert('m2', 's1', 2, now + 1000, 200, []);
 insert('m3', 's1', 3, now + 2000, 10, [part('beta')]);
 insert('m4', 's2', 1, now + 3000, 500, [part('gamma', 'error')]);
 insert('m5', 's3', 1, now + 4000, 400, [part('alpha'), part('delta')]);
+db.prepare('INSERT INTO session_message VALUES (?,?,?,?,?,?,?)').run(
+  'u1', 's1', 'user', 6, now + 5000, now + 5000,
+  JSON.stringify({ time: { created: now + 5000 }, skills: [{ id: 'auto-skill', name: 'auto-skill' }] }),
+);
 for (const [id, dir, title] of [
   ['s1', '/proj/one', 'Alpha task'], ['s2', '/proj/two', 'Beta task'], ['s3', '/proj/three', 'Gamma task'],
 ]) {
@@ -92,6 +96,11 @@ try {
     Array.isArray(all.body.log) && all.body.log.length >= 4 &&
     all.body.log[0].t >= all.body.log[1].t && !all.body.log.some((e) => e.id === 'gamma'));
   check('log carries session titles', all.body.log.some((e) => e.title === 'Alpha task'));
+  const withAuto = await get('/breakdown?range=all&source=auto&force=1');
+  check('auto-loaded skills are separate and opt-in',
+    all.body.total === 4 && all.body.injectedTotal === 1 && withAuto.body.total === 5 &&
+    withAuto.body.skills.some((s) => s.id === 'auto-skill') &&
+    withAuto.body.log.some((e) => e.id === 'auto-skill' && e.auto === true));
   check('hourly counts and momentum present',
     Array.isArray(all.body.hours) && all.body.hours.length === 24 &&
     all.body.hours.some((h) => h > 0) && Array.isArray(all.body.momentum?.up));

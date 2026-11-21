@@ -3,7 +3,7 @@ import { applyHostReady, mountButton, mountEmpty, mountSearchField, mountSelect,
 
 type Skill = { id: string; count: number; share: number; lastUsed: number; tokens: number; cache: number; sessions: number };
 type Day = { day: string; count: number; tokens: number; skills: string[] };
-type LogEntry = { id: string; t: number; directory: string; session: string; title: string };
+type LogEntry = { id: string; t: number; directory: string; session: string; title: string; auto: boolean };
 type Momentum = { id: string; current: number; previous: number; delta: number };
 type Trend = {
   current: number; previous: number; pct: number | null; label: string;
@@ -14,6 +14,7 @@ type Breakdown = {
   range: string; label: string; total: number; tokens: number; cache: number;
   skills: Skill[]; days: Day[]; projects: string[]; streak: number; trend: Trend; builtAt: number;
   log: LogEntry[]; logTotal: number; hours: number[];
+  loadedTotal: number; injectedTotal: number; includeAuto: boolean;
   momentum: { up: Momentum[]; down: Momentum[] };
   expensive: { id: string; tokens: number; count: number } | null;
   totals: { today: number; week: number; month: number; year: number; all: number }; error?: string;
@@ -30,13 +31,14 @@ let search = '';
 let expanded = false;
 let expandedLog = false;
 let skillFilter = '';
+let includeAuto = false;
 let canPersist = false;
 let lastData: Breakdown | null = null;
 const PREFS_KEY = 'view';
 
 async function savePrefs(): Promise<void> {
   if (!canPersist) return;
-  try { await host.storage.set(PREFS_KEY, { range, project, metric }, { scope: 'device' }); }
+  try { await host.storage.set(PREFS_KEY, { range, project, metric, includeAuto }, { scope: 'device' }); }
   catch { /* preferences are optional */ }
 }
 
@@ -228,6 +230,12 @@ function draw(data: Breakdown): void {
     onChange: (id: string) => { range = id; void savePrefs(); void load(); },
   });
   topbar.append(tabs);
+  const auto = el('div');
+  mountButton(auto, {
+    label: includeAuto ? 'auto ✓' : '+auto', variant: 'ghost', size: 'xs',
+    onClick: () => { includeAuto = !includeAuto; void savePrefs(); void load(); },
+  });
+  topbar.append(auto);
   const refresh = el('div', 'refresh');
   mountButton(refresh, { label: 'Refresh', variant: 'ghost', size: 'xs', onClick: () => void load(true) });
   topbar.append(refresh);
@@ -266,7 +274,9 @@ function draw(data: Breakdown): void {
   add(line1, fmtTok(data.tokens), true);
   add(line1, ' tokens · ');
   add(line1, fmtTok(data.cache), true);
-  add(line1, ' cached');
+  add(line1, ' cached · ');
+  add(line1, String(data.injectedTotal), true);
+  add(line1, ' auto');
 
   const line2 = el('div');
   add(line2, `${data.streak}-day`, true);
@@ -431,7 +441,7 @@ function draw(data: Breakdown): void {
         const row = el('div', 'log-row');
         row.append(
           el('span', 'log-time', ago(entry.t)),
-          el('span', 'log-skill', entry.id),
+          el('span', 'log-skill', entry.auto ? `${entry.id} · auto` : entry.id),
           el('span', 'log-proj', entry.title || shortPath(entry.directory)),
         );
         row.title = `${new Date(entry.t).toLocaleString()} · ${shortPath(entry.directory)} · session ${entry.session}`;
@@ -465,6 +475,7 @@ async function load(force = false, silent = false): Promise<void> {
   }
   try {
     const params = new URLSearchParams({ range, project });
+    if (includeAuto) params.set('source', 'auto');
     if (force) params.set('force', '1');
     const res = await host.serviceRequest({ method: 'GET', path: `/breakdown?${params}` });
     const data: Breakdown = typeof res.body === 'string' ? JSON.parse(res.body) : res.body;
@@ -491,10 +502,11 @@ host.onReady((ctx) => {
     if (canPersist) {
       try {
         const saved = await host.storage.get(PREFS_KEY, { scope: 'device' }) as
-          | { range?: string; project?: string; metric?: Metric } | undefined;
+          | { range?: string; project?: string; metric?: Metric; includeAuto?: boolean } | undefined;
         if (saved?.range && RANGES.some((r) => r.id === saved.range)) range = saved.range;
         if (typeof saved?.project === 'string') project = saved.project;
         if (saved?.metric === 'tokens' || saved?.metric === 'count') metric = saved.metric;
+        if (typeof saved?.includeAuto === 'boolean') includeAuto = saved.includeAuto;
       } catch { /* defaults are fine */ }
     }
     await load();

@@ -26,7 +26,7 @@ A compact leaderboard of your most-used skills with counts and bars. Always all-
 - Refresh button for a full re-read.
 - Today's use count on the rail icon badge.
 
-Your selected range, project, and heatmap metric are remembered between panel opens. The rail panel refreshes quietly every 15 seconds while it is open, and the service refreshes its snapshot before answering a request older than 5 seconds — so new skill use appears without pressing Refresh. The Work Status section polls every 10 seconds while visible.
+Your selected range, project, heatmap metric, and the `+auto` setting are remembered between panel opens. The rail panel refreshes quietly every 15 seconds while it is open, and the service refreshes its snapshot before answering a request older than 5 seconds — so new skill use appears without pressing Refresh. The Work Status section polls every 10 seconds while visible.
 
 ## Requirements
 
@@ -78,7 +78,7 @@ It counts assistant messages containing a `skill` tool call, and keeps a compact
 ### What the numbers mean
 
 - **Uses** — a **successfully completed** `skill` tool call. Failed loads are not counted. Skills invoked by `@` mentions, slash commands, or another agent are not counted.
-- **Automatically loaded skills** are not counted either: when OpenChamber injects a skill's content directly into context, no `skill` tool call is recorded, so it cannot be distinguished from an ordinary skill file by this extension. The recent log lists exactly the calls that were counted.
+- **Automatically loaded skills** are counted separately. Click **+auto** in the panel header to include skills that OpenChamber injects into context (recorded in the user message's `skills` array) in the leaderboard and log. They are marked `· auto` in the log so the two sources stay distinguishable. The default view counts only explicit `skill` tool calls.
 - **Tokens** — an estimate: all tokens from the turn a skill was loaded until the next skill load or the end of that session. If one turn loads several skills, its tokens are split evenly between them. OpenCode does not tag tokens per skill, so treat this as comparative, not a bill.
 - **Project** — the directory recorded on the OpenCode session. OpenChamber chat sessions appear as projects too.
 - **Streak and trend** — computed from full history within the selected project, independent of the selected range.
