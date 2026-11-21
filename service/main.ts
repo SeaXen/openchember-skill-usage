@@ -39,6 +39,7 @@ FROM session_message AS sm
 JOIN json_each(json_extract(sm.data, '$.content')) AS je
   ON json_extract(je.value, '$.type') = 'tool'
  AND lower(json_extract(je.value, '$.name')) = 'skill'
+ AND lower(json_extract(je.value, '$.state.status')) = 'completed'
 LEFT JOIN session_v2 AS v ON v.id = sm.session_id
 WHERE sm.type = 'assistant'
 `;
@@ -67,6 +68,7 @@ FROM session_message AS sm
 LEFT JOIN json_each(json_extract(sm.data, '$.content')) AS je
   ON json_extract(je.value, '$.type') = 'tool'
  AND lower(json_extract(je.value, '$.name')) = 'skill'
+ AND lower(json_extract(je.value, '$.state.status')) = 'completed'
 LEFT JOIN session_v2 AS v ON v.id = sm.session_id
 WHERE sm.type = 'assistant' AND sm.data LIKE '%"tokens"%'
   __FILTER__
@@ -90,7 +92,7 @@ function readMessages(sessions: string[]): Msg[] | null {
 // Compact snapshot kept outside the package, so opening the panel does not rescan the database.
 const CACHE = path.join(os.homedir(), '.config', 'openchamber', 'guest-data', 'skill-usage', 'stats.json');
 const FRESH_MS = 15_000;
-const VERSION = 2;
+const VERSION = 3;
 type Snapshot = { version: number; builtAt: number; watermark: number; calls: Call[]; msgs: Msg[] };
 let snapshot: Snapshot | null = null;
 let rebuilding = false;

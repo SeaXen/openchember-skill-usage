@@ -72,7 +72,7 @@ It counts assistant messages containing a `skill` tool call, and keeps a compact
 
 ### What the numbers mean
 
-- **Uses** — a `skill` tool call. Skills invoked by `@` mentions, slash commands, or another agent are not counted.
+- **Uses** — a **successfully completed** `skill` tool call. Failed loads are not counted. Skills invoked by `@` mentions, slash commands, or another agent are not counted.
 - **Tokens** — an estimate: all tokens from the turn a skill was loaded until the next skill load or the end of that session. OpenCode does not tag tokens per skill, so treat this as comparative, not a bill.
 - **Project** — the directory recorded on the OpenCode session. OpenChamber chat sessions appear as projects too.
 - **Streak and trend** — computed from full history within the selected project, independent of the selected range.

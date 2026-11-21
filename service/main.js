@@ -36,6 +36,7 @@ FROM session_message AS sm
 JOIN json_each(json_extract(sm.data, '$.content')) AS je
   ON json_extract(je.value, '$.type') = 'tool'
  AND lower(json_extract(je.value, '$.name')) = 'skill'
+ AND lower(json_extract(je.value, '$.state.status')) = 'completed'
 LEFT JOIN session_v2 AS v ON v.id = sm.session_id
 WHERE sm.type = 'assistant'
 `;
@@ -68,6 +69,7 @@ FROM session_message AS sm
 LEFT JOIN json_each(json_extract(sm.data, '$.content')) AS je
   ON json_extract(je.value, '$.type') = 'tool'
  AND lower(json_extract(je.value, '$.name')) = 'skill'
+ AND lower(json_extract(je.value, '$.state.status')) = 'completed'
 LEFT JOIN session_v2 AS v ON v.id = sm.session_id
 WHERE sm.type = 'assistant' AND sm.data LIKE '%"tokens"%'
   __FILTER__
@@ -96,7 +98,7 @@ function readMessages(sessions) {
 }
 var CACHE = path.join(os.homedir(), ".config", "openchamber", "guest-data", "skill-usage", "stats.json");
 var FRESH_MS = 15000;
-var VERSION = 2;
+var VERSION = 3;
 var snapshot = null;
 var rebuilding = false;
 function saveSnapshot(next) {
