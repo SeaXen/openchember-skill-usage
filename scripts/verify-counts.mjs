@@ -86,6 +86,9 @@ try {
     typeof all.body.trend?.current === 'number' &&
     typeof all.body.trend?.tokens?.current === 'number');
   check('freshness timestamp present', typeof all.body.builtAt === 'number');
+  check('recent log is newest-first and excludes failed calls',
+    Array.isArray(all.body.log) && all.body.log.length >= 4 &&
+    all.body.log[0].t >= all.body.log[1].t && !all.body.log.some((e) => e.id === 'gamma'));
   check('projects only from successful uses', all.body.projects?.length === 2);
 
   const status = await get('/status');

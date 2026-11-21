@@ -3,6 +3,7 @@ import { applyHostReady, mountButton, mountEmpty, mountSearchField, mountSelect,
 
 type Skill = { id: string; count: number; share: number; lastUsed: number; tokens: number; cache: number; sessions: number };
 type Day = { day: string; count: number; tokens: number; skills: string[] };
+type LogEntry = { id: string; t: number; directory: string; session: string };
 type Trend = {
   current: number; previous: number; pct: number | null; label: string;
   tokens: { current: number; previous: number; pct: number | null };
@@ -11,6 +12,7 @@ type Metric = 'tokens' | 'count';
 type Breakdown = {
   range: string; label: string; total: number; tokens: number; cache: number;
   skills: Skill[]; days: Day[]; projects: string[]; streak: number; trend: Trend; builtAt: number;
+  log: LogEntry[]; logTotal: number;
   expensive: { id: string; tokens: number; count: number } | null;
   totals: { today: number; week: number; month: number; year: number; all: number }; error?: string;
 };
@@ -24,6 +26,7 @@ let project = ALL;
 let metric: Metric = 'tokens';
 let search = '';
 let expanded = false;
+let expandedLog = false;
 let canPersist = false;
 let lastData: Breakdown | null = null;
 const PREFS_KEY = 'view';
@@ -358,6 +361,39 @@ function draw(data: Breakdown): void {
       detail.append(more);
     }
     root.append(detail);
+  }
+
+  if (data.log?.length) {
+    const logSection = el('div', 'section');
+    const last = data.log[0];
+    logSection.append(el('div', 'section-title', `Last used: ${last.id} · ${ago(last.t)}`));
+    const logList = el('div');
+    const more = el('div', 'more');
+    const renderLog = () => {
+      logList.replaceChildren();
+      more.replaceChildren();
+      const shown = expandedLog ? data.log : data.log.slice(0, 8);
+      for (const entry of shown) {
+        const row = el('div', 'log-row');
+        row.append(
+          el('span', 'log-time', ago(entry.t)),
+          el('span', 'log-skill', entry.id),
+          el('span', 'log-proj', shortPath(entry.directory)),
+        );
+        row.title = `${new Date(entry.t).toLocaleString()} · session ${entry.session}`;
+        logList.append(row);
+      }
+      if (!expandedLog && data.log.length > 8) {
+        mountButton(more, {
+          label: `Show ${data.log.length - 8} more`,
+          variant: 'ghost', size: 'xs',
+          onClick: () => { expandedLog = true; renderLog(); },
+        });
+      }
+    };
+    logSection.append(logList, more);
+    renderLog();
+    root.append(logSection);
   }
 }
 

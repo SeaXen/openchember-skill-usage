@@ -15,6 +15,7 @@ A compact leaderboard of your most-used skills with counts and bars. Always all-
 - A GitHub-style activity heatmap coloured by tokens or by number of uses (toggle in the section header). Hover a square for the date, uses, tokens, and skills involved.
 - "Skills in this period" — ranked list with use count, share, tokens, last used, and sessions, with a filter box when there are many skills.
 - "Skills used by day" — which skills were used on each active day.
+- "Last used: …" / recent skill log — a chronological list of individual skill loads with relative time, skill name, and project. Hover an entry for the exact timestamp and session.
 - Streak and comparison against the previous equivalent period for **both uses and tokens** ("vs yesterday", "vs prior 30 days", etc.).
 - "Updated … ago" freshness note so you can see how current the numbers are.
 - Most expensive skill by tokens.
@@ -74,6 +75,7 @@ It counts assistant messages containing a `skill` tool call, and keeps a compact
 ### What the numbers mean
 
 - **Uses** — a **successfully completed** `skill` tool call. Failed loads are not counted. Skills invoked by `@` mentions, slash commands, or another agent are not counted.
+- **Automatically loaded skills** are not counted either: when OpenChamber injects a skill's content directly into context, no `skill` tool call is recorded, so it cannot be distinguished from an ordinary skill file by this extension. The recent log lists exactly the calls that were counted.
 - **Tokens** — an estimate: all tokens from the turn a skill was loaded until the next skill load or the end of that session. If one turn loads several skills, its tokens are split evenly between them. OpenCode does not tag tokens per skill, so treat this as comparative, not a bill.
 - **Project** — the directory recorded on the OpenCode session. OpenChamber chat sessions appear as projects too.
 - **Streak and trend** — computed from full history within the selected project, independent of the selected range.

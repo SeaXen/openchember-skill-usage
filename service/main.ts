@@ -17,6 +17,7 @@ type Call = { skill_id: string; t: number; session: string; directory: string };
 type Msg = { s: string; q: number; t: number; tok: number; cache: number; skill: string | null; directory: string };
 type Segment = { skill: string; start: number; tokens: number; cache: number; session: string };
 type Day = { day: string; count: number; tokens: number; skills: string[] };
+type LogEntry = { id: string; t: number; directory: string; session: string };
 type Row = Record<string, unknown>;
 
 // OpenCode and OpenChamber both write skill tool calls to this database.
@@ -330,7 +331,7 @@ function breakdown(range: string, project: string): Row {
   const { calls, msgs } = current();
   const projects = [...new Set(calls.map((c) => c.directory).filter(Boolean))].sort();
   const empty = { range, label: LABELS[range] ?? LABELS.all, total: 0, skills: [], days: [], tokens: 0, cache: 0,
-    projects, streak: 0, builtAt: current().builtAt,
+    projects, streak: 0, builtAt: current().builtAt, log: [], logTotal: 0,
     trend: { current: 0, previous: 0, pct: null, label: 'vs previous period', tokens: { current: 0, previous: 0, pct: null } },
     expensive: null, totals: { today: 0, week: 0, month: 0, year: 0, all: 0 } };
   if (!calls.length) {
@@ -393,9 +394,16 @@ function breakdown(range: string, project: string): Row {
     return { day: d.day, count: d.count, tokens: info?.tokens ?? 0, skills: info ? [...info.skills].sort() : [] };
   });
   const tokenByDay = new Map(allDays.map((d) => [d.day, d.tokens]));
+  const inRange = scoped.filter((c) => c.t >= cutoff);
+  const log: LogEntry[] = [...inRange]
+    .sort((a, b) => b.t - a.t)
+    .slice(0, 20)
+    .map((c) => ({ id: c.skill_id, t: c.t, directory: c.directory, session: c.session }));
   return {
     range,
     builtAt: current().builtAt,
+    log,
+    logTotal: inRange.length,
     label: LABELS[range] ?? LABELS.all,
     project,
     total: data.total,

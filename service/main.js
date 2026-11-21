@@ -385,6 +385,8 @@ function breakdown(range, project) {
     projects,
     streak: 0,
     builtAt: current().builtAt,
+    log: [],
+    logTotal: 0,
     trend: { current: 0, previous: 0, pct: null, label: "vs previous period", tokens: { current: 0, previous: 0, pct: null } },
     expensive: null,
     totals: { today: 0, week: 0, month: 0, year: 0, all: 0 }
@@ -446,9 +448,13 @@ function breakdown(range, project) {
     return { day: d.day, count: d.count, tokens: info?.tokens ?? 0, skills: info ? [...info.skills].sort() : [] };
   });
   const tokenByDay = new Map(allDays.map((d) => [d.day, d.tokens]));
+  const inRange = scoped.filter((c) => c.t >= cutoff);
+  const log = [...inRange].sort((a, b) => b.t - a.t).slice(0, 20).map((c) => ({ id: c.skill_id, t: c.t, directory: c.directory, session: c.session }));
   return {
     range,
     builtAt: current().builtAt,
+    log,
+    logTotal: inRange.length,
     label: LABELS[range] ?? LABELS.all,
     project,
     total: data.total,
