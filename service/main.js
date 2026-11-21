@@ -250,21 +250,32 @@ function tokenSegments(msgs) {
   const segments = [];
   let current = null;
   let session = "";
+  const flush = () => {
+    if (!current)
+      return;
+    const tokens = current.tokens / current.skills.length;
+    const cache = current.cache / current.skills.length;
+    for (const skill of current.skills) {
+      segments.push({ skill, start: current.start, tokens, cache, session: current.session });
+    }
+    current = null;
+  };
   for (const m of ordered) {
     const s = m.key.slice(0, m.key.indexOf("\x00"));
     if (s !== session) {
-      current = null;
+      flush();
       session = s;
     }
     if (m.skills.length) {
-      current = { skill: m.skills[0], start: m.t, tokens: 0, cache: 0, session: s };
-      segments.push(current);
+      flush();
+      current = { skills: m.skills, start: m.t, tokens: 0, cache: 0, session: s };
     }
     if (!current)
       continue;
     current.tokens += m.tok;
     current.cache += m.cache;
   }
+  flush();
   return segments;
 }
 function streakOf(days) {

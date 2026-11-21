@@ -1,6 +1,6 @@
 {
   "name": "skill-usage",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -22,7 +22,8 @@
   },
   "scripts": {
     "build": "npx openchamber-guest-bundle panel/main.ts panel/main.js && npx openchamber-guest-bundle --node service/main.ts service/main.js",
-    "check": "npx openchamber-guest-check"
+    "check": "npx openchamber-guest-check",
+    "test": "node scripts/verify-counts.mjs"
   },
   "dependencies": { "@openchamber/sdk": "2.7.3" }
 }

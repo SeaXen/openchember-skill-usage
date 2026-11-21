@@ -73,7 +73,7 @@ It counts assistant messages containing a `skill` tool call, and keeps a compact
 ### What the numbers mean
 
 - **Uses** — a **successfully completed** `skill` tool call. Failed loads are not counted. Skills invoked by `@` mentions, slash commands, or another agent are not counted.
-- **Tokens** — an estimate: all tokens from the turn a skill was loaded until the next skill load or the end of that session. OpenCode does not tag tokens per skill, so treat this as comparative, not a bill.
+- **Tokens** — an estimate: all tokens from the turn a skill was loaded until the next skill load or the end of that session. If one turn loads several skills, its tokens are split evenly between them. OpenCode does not tag tokens per skill, so treat this as comparative, not a bill.
 - **Project** — the directory recorded on the OpenCode session. OpenChamber chat sessions appear as projects too.
 - **Streak and trend** — computed from full history within the selected project, independent of the selected range.
 
@@ -100,7 +100,10 @@ npm install
 bunx openchamber-guest-bundle panel/main.ts panel/main.js
 bunx openchamber-guest-bundle --node service/main.ts service/main.js
 bunx openchamber-guest-check
+node scripts/verify-counts.mjs
 ```
+
+`verify-counts.mjs` builds a small fake OpenCode database and checks completed-only counting, per-skill counts, token splitting for multi-skill turns, project scoping, the Work Status summary, and auth. It runs in CI on every push.
 
 Install the folder from **Settings → Extensions → Add from folder** for live reload during development. Commit the built `.js` files with any change — installing from Git never builds.
 

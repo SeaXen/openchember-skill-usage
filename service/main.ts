@@ -214,19 +214,30 @@ function tokenSegments(msgs: Msg[]): Segment[] {
   const ordered = [...groups.entries()].map(([key, g]) => ({ key, ...g }))
     .sort((a, b) => a.key.localeCompare(b.key) || a.q - b.q);
   const segments: Segment[] = [];
-  let current: Segment | null = null;
+  let current: { skills: string[]; start: number; tokens: number; cache: number; session: string } | null = null;
   let session = '';
+  const flush = () => {
+    if (!current) return;
+    // A turn that loads several skills shares its tokens between them.
+    const tokens = current.tokens / current.skills.length;
+    const cache = current.cache / current.skills.length;
+    for (const skill of current.skills) {
+      segments.push({ skill, start: current.start, tokens, cache, session: current.session });
+    }
+    current = null;
+  };
   for (const m of ordered) {
     const s = m.key.slice(0, m.key.indexOf('\u0000'));
-    if (s !== session) { current = null; session = s; }
+    if (s !== session) { flush(); session = s; }
     if (m.skills.length) {
-      current = { skill: m.skills[0], start: m.t, tokens: 0, cache: 0, session: s };
-      segments.push(current);
+      flush();
+      current = { skills: m.skills, start: m.t, tokens: 0, cache: 0, session: s };
     }
     if (!current) continue;
     current.tokens += m.tok;
     current.cache += m.cache;
   }
+  flush();
   return segments;
 }
 
