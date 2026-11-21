@@ -23,6 +23,7 @@ let range = 'all';
 let project = ALL;
 let metric: Metric = 'tokens';
 let search = '';
+let expanded = false;
 let canPersist = false;
 let lastData: Breakdown | null = null;
 const PREFS_KEY = 'view';
@@ -288,7 +289,6 @@ function draw(data: Breakdown): void {
   }
   const list = el('div');
   const more = el('div', 'more');
-  let expanded = false;
   const renderSkills = () => {
     list.replaceChildren();
     more.replaceChildren();
@@ -361,21 +361,34 @@ function draw(data: Breakdown): void {
   }
 }
 
-async function load(force = false): Promise<void> {
-  const body = el('div');
-  mountSpinner(body, { label: 'Reading skill history…' });
-  root.replaceChildren(body);
+const signature = (d: Breakdown) =>
+  `${d.total}|${Math.round(d.tokens)}|${d.skills.map((s) => `${s.id}:${s.count}`).join(',')}`;
+let inFlight = false;
+
+async function load(force = false, silent = false): Promise<void> {
+  if (inFlight) return;
+  inFlight = true;
+  if (!silent) {
+    const body = el('div');
+    mountSpinner(body, { label: 'Reading skill history…' });
+    root.replaceChildren(body);
+  }
   try {
     const params = new URLSearchParams({ range, project });
     if (force) params.set('force', '1');
     const res = await host.serviceRequest({ method: 'GET', path: `/breakdown?${params}` });
     const data: Breakdown = typeof res.body === 'string' ? JSON.parse(res.body) : res.body;
+    const changed = force || !lastData || signature(lastData) !== signature(data);
     lastData = data;
     void host.setBadge(data.totals.today ? Math.min(data.totals.today, 999) : null);
-    draw(data);
+    if (changed || !silent) draw(data);
   } catch {
-    root.replaceChildren();
-    mountEmpty(root, { title: 'Could not read skill history', body: 'Open Work Status and try again.' });
+    if (!silent) {
+      root.replaceChildren();
+      mountEmpty(root, { title: 'Could not read skill history', body: 'Open Work Status and try again.' });
+    }
+  } finally {
+    inFlight = false;
   }
 }
 
@@ -395,5 +408,7 @@ host.onReady((ctx) => {
       } catch { /* defaults are fine */ }
     }
     await load();
+    // Quietly pick up new skill use while the panel is open.
+    setInterval(() => { if (!document.hidden) void load(false, true); }, 15_000);
   })();
 });

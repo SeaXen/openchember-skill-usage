@@ -22,7 +22,7 @@ A compact leaderboard of your most-used skills with counts and bars. Always all-
 - Refresh button for a full re-read.
 - Today's use count on the rail icon badge.
 
-Your selected range, project, and heatmap metric are remembered between panel opens.
+Your selected range, project, and heatmap metric are remembered between panel opens. The rail panel refreshes quietly every 15 seconds while it is open, and the service refreshes its snapshot before answering a request older than 5 seconds — so new skill use appears without pressing Refresh. The Work Status section polls every 10 seconds while visible.
 
 ## Requirements
 
@@ -89,7 +89,7 @@ No network calls, no credentials, no telemetry. Data is read from your local Ope
 | "No skill history found yet" | Use a few skills in OpenCode, then press Refresh. |
 | "Needs Node 22.5+ with node:sqlite" | Your OpenChamber runtime is too old; update OpenChamber. |
 | Right app, no numbers | Confirm OpenCode has written `opencode.db` at one of the paths above. |
-| Numbers look stale | Press Refresh in the rail panel (the normal cache is 15 seconds old at most). |
+| Numbers look stale | Press Refresh in the rail panel for an immediate full rebuild; otherwise the panel picks up changes within about 15 seconds. |
 | Wrong project list | Project names come from OpenCode session directories; pick "All projects" to see everything. |
 
 ## Develop from source

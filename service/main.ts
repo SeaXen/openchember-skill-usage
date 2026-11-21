@@ -91,11 +91,10 @@ function readMessages(sessions: string[]): Msg[] | null {
 
 // Compact snapshot kept outside the package, so opening the panel does not rescan the database.
 const CACHE = path.join(os.homedir(), '.config', 'openchamber', 'guest-data', 'skill-usage', 'stats.json');
-const FRESH_MS = 15_000;
+const FRESH_MS = 5_000;
 const VERSION = 3;
 type Snapshot = { version: number; builtAt: number; watermark: number; calls: Call[]; msgs: Msg[] };
 let snapshot: Snapshot | null = null;
-let rebuilding = false;
 
 function saveSnapshot(next: Snapshot): Snapshot {
   snapshot = next;
@@ -159,11 +158,8 @@ function current(): Snapshot {
   if (snapshot && Date.now() - snapshot.builtAt < FRESH_MS) return snapshot;
   if (!snapshot) snapshot = readDisk();
   if (snapshot && Date.now() - snapshot.builtAt < FRESH_MS) return snapshot;
-  if (snapshot && !rebuilding) {
-    rebuilding = true;
-    setImmediate(() => { try { refresh(); } finally { rebuilding = false; } });
-  }
-  return snapshot ?? rebuild();
+  // Refresh before answering so a poll never shows stale numbers.
+  return snapshot ? refresh() : rebuild();
 }
 
 const midnight = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };

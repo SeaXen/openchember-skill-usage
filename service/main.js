@@ -97,10 +97,9 @@ function readMessages(sessions) {
   }
 }
 var CACHE = path.join(os.homedir(), ".config", "openchamber", "guest-data", "skill-usage", "stats.json");
-var FRESH_MS = 15000;
+var FRESH_MS = 5000;
 var VERSION = 3;
 var snapshot = null;
-var rebuilding = false;
 function saveSnapshot(next) {
   snapshot = next;
   try {
@@ -173,17 +172,7 @@ function current() {
     snapshot = readDisk();
   if (snapshot && Date.now() - snapshot.builtAt < FRESH_MS)
     return snapshot;
-  if (snapshot && !rebuilding) {
-    rebuilding = true;
-    setImmediate(() => {
-      try {
-        refresh();
-      } finally {
-        rebuilding = false;
-      }
-    });
-  }
-  return snapshot ?? rebuild();
+  return snapshot ? refresh() : rebuild();
 }
 var midnight = () => {
   const d = new Date;
