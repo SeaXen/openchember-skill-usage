@@ -94,7 +94,8 @@ function heatmap(days: Day[]): HTMLElement {
     grid.append(cell);
   }
   wrap.append(grid);
-  wrap.scrollLeft = wrap.scrollWidth;
+  // Layout is not settled during the first paint, so defer the scroll to the newest days.
+  requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; });
   const legend = el('div', 'heat-legend');
   legend.append(el('span', '', 'Less'));
   for (const o of [0.3, 0.5, 0.75, 1]) {
@@ -105,6 +106,33 @@ function heatmap(days: Day[]): HTMLElement {
   legend.append(el('span', '', 'More'));
   legend.append(el('span', '', `· by ${metric === 'tokens' ? 'tokens' : 'uses'}`));
   wrap.append(legend);
+  return wrap;
+}
+
+function weekBars(days: Day[]): HTMLElement {
+  const wrap = el('div', 'week-bars');
+  const byDay = new Map(days.map((d) => [d.day, d]));
+  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const entries = [];
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(today); date.setDate(date.getDate() - i);
+    const info = byDay.get(ymd(date));
+    entries.push({ date, info, value: info ? (metric === 'tokens' ? info.tokens : info.count) : 0 });
+  }
+  const max = Math.max(...entries.map((e) => e.value), 1);
+  for (const { date, info, value } of entries) {
+    const col = el('div', 'week-col');
+    const track = el('div', 'week-track');
+    const fill = el('div', 'week-bar');
+    fill.style.height = value ? `${Math.max(6, (value / max) * 100)}%` : '0';
+    fill.title = info
+      ? `${ymd(date)} · ${info.count} use(s) · ${fmtTok(info.tokens)} tokens`
+      : `${ymd(date)} · no skill use`;
+    track.append(fill);
+    col.append(track, el('span', 'week-label', weekdays[date.getDay()]));
+    wrap.append(col);
+  }
   return wrap;
 }
 
@@ -280,7 +308,7 @@ function draw(data: Breakdown): void {
   root.append(all);
 
   const active = data.days.filter((d) => d.count > 0);
-  if (active.length) {
+  if (active.length && range !== 'today') {
     const recent = el('div', 'section');
     const recentHead = el('div', 'toolbar');
     recentHead.append(el('div', 'section-title', `Activity · ${data.label.toLowerCase()}`));
@@ -292,9 +320,11 @@ function draw(data: Breakdown): void {
     });
     recentHead.append(toggle);
     recent.append(recentHead);
-    recent.append(heatmap(data.days));
+    recent.append(range === 'week' ? weekBars(data.days) : heatmap(data.days));
     root.append(recent);
+  }
 
+  if (active.length) {
     const detail = el('div', 'section');
     detail.append(el('div', 'section-title', 'Skills used by day'));
     const dayList = el('div');
