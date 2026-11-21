@@ -475,7 +475,9 @@ function breakdown(range: string, project: string, includeAuto: boolean): Row {
   for (const c of scoped) {
     if (c.t >= cutoff) hours[new Date(c.t).getHours()]++;
   }
-  const momentum = momentumOf(scoped, boundsFor(allDays, range));
+  const bounds = boundsFor(allDays, range);
+  const hasPrevious = scoped.some((c) => c.t >= bounds.prevStart.getTime() && c.t <= bounds.prevEnd.getTime());
+  const momentum = hasPrevious ? momentumOf(scoped, bounds) : { up: [], down: [] };
   return {
     range,
     builtAt: current().builtAt,
