@@ -1,0 +1,28 @@
+{
+  "name": "skill-usage",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "See which skills you use most, at a glance in Work Status.",
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": { "openchamber": ">=2.7.3" },
+    "id": "skill-usage",
+    "name": "Skill Usage",
+    "icon": "bar-chart",
+    "contributes": {
+      "service": { "entry": "service/main.js", "runtime": "host" },
+      "panel": { "id": "skill-usage", "name": "Skill Usage", "icon": "bar-chart", "entry": "panel/index.html" },
+      "statusSection": {
+        "source": { "path": "/status", "interval": 10000 },
+        "title": "Skill usage"
+      }
+    }
+  },
+  "scripts": {
+    "build": "npx openchamber-guest-bundle panel/main.ts panel/main.js && npx openchamber-guest-bundle --node service/main.ts service/main.js",
+    "check": "npx openchamber-guest-check"
+  },
+  "dependencies": { "@openchamber/sdk": "2.7.3" }
+}

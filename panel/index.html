@@ -1,0 +1,34 @@
+<!doctype html><html><head><style>
+  html,body{margin:0;font-family:inherit;font-size:inherit;color:inherit;background:var(--oc-bg);}
+  #root{padding:10px 12px 14px;display:flex;flex-direction:column;gap:8px;}
+  .topbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;}
+  .topbar .oc-sdk-tab{height:24px;padding:0 8px;font-size:.72rem;}
+  .toolbar{display:flex;align-items:center;gap:8px;min-width:0;}
+  .title{font-weight:650;font-size:1rem;white-space:nowrap;}
+  .topbar .proj{flex:0 1 132px;min-width:0;}
+  .topbar .proj .oc-sdk-trigger{height:26px;max-width:100%;}
+  .toolbar .refresh{flex:0 0 auto;margin-left:auto;}
+  .stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;}
+  .stat{min-width:0;background:var(--oc-elevated);border:1px solid var(--oc-border);border-radius:var(--oc-radius);padding:5px 2px;text-align:center;}
+  .stat-v{font-weight:650;font-size:.95rem;line-height:1.1;}
+  .stat-l{color:var(--oc-muted);font-size:.62rem;line-height:1.2;}
+  .meta{display:flex;flex-direction:column;gap:2px;color:var(--oc-muted);font-size:.72rem;line-height:1.35;}
+  .meta b{color:var(--oc-fg);font-weight:600;}
+  .section{margin-top:2px;}
+  .section-title{color:var(--oc-muted);font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;}
+  .row{padding:3px 0;}
+  .row-top{display:flex;justify-content:space-between;gap:8px;font-size:.78rem;}
+  .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .num{color:var(--oc-muted);white-space:nowrap;}
+  .track{height:3px;background:var(--oc-subtle);border-radius:99px;margin-top:3px;overflow:hidden;}
+  .fill{height:100%;background:var(--oc-primary);border-radius:99px;}
+  .heat-scroll{overflow-x:auto;max-width:100%;padding-bottom:2px;}
+  .heat-grid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);grid-auto-columns:11px;gap:3px;width:max-content;}
+  .heat-cell{width:11px;height:11px;border-radius:2px;background:var(--oc-subtle);}
+  .heat-legend{display:flex;align-items:center;gap:4px;color:var(--oc-muted);font-size:.62rem;margin-top:5px;}
+  .heat-legend i{width:9px;height:9px;border-radius:2px;background:var(--oc-primary);display:inline-block;}
+  .day-row{display:flex;gap:8px;align-items:baseline;font-size:.72rem;padding:2px 0;}
+  .day-date{color:var(--oc-muted);min-width:48px;white-space:nowrap;}
+  .day-skills{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .day-tok{color:var(--oc-muted);white-space:nowrap;}
+</style></head><body><div id="root"></div><script src="./main.js"></script></body></html>
