@@ -125,12 +125,18 @@ function weekBars(days: Day[]): HTMLElement {
     const col = el('div', 'week-col');
     const track = el('div', 'week-track');
     const fill = el('div', 'week-bar');
-    fill.style.height = value ? `${Math.max(6, (value / max) * 100)}%` : '0';
+    // Square root keeps small days visible next to one dominant day.
+    fill.style.height = value ? `${Math.max(8, Math.sqrt(value / max) * 100)}%` : '0';
     fill.title = info
       ? `${ymd(date)} · ${info.count} use(s) · ${fmtTok(info.tokens)} tokens`
       : `${ymd(date)} · no skill use`;
     track.append(fill);
-    col.append(track, el('span', 'week-label', weekdays[date.getDay()]));
+    const valueText = value ? (metric === 'tokens' ? fmtTok(value) : String(value)) : '·';
+    col.append(
+      el('span', 'week-value', valueText),
+      track,
+      el('span', 'week-label', weekdays[date.getDay()]),
+    );
     wrap.append(col);
   }
   return wrap;
