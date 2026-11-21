@@ -94,6 +94,7 @@ function heatmap(days: Day[]): HTMLElement {
     grid.append(cell);
   }
   wrap.append(grid);
+  wrap.scrollLeft = wrap.scrollWidth;
   const legend = el('div', 'heat-legend');
   legend.append(el('span', '', 'Less'));
   for (const o of [0.3, 0.5, 0.75, 1]) {
@@ -188,20 +189,55 @@ function draw(data: Breakdown): void {
   root.append(stats);
 
   const trend = data.trend;
-  const trendText = trend.pct === null
-    ? `no data ${trend.label}`
-    : `${trend.pct >= 0 ? '+' : ''}${trend.pct}% ${trend.label} (${trend.current} vs ${trend.previous})`;
-  const tokTrend = trend.tokens;
-  const tokTrendText = tokTrend.pct === null
-    ? `no data ${trend.label}`
-    : `${tokTrend.pct >= 0 ? '+' : ''}${tokTrend.pct}% tokens ${trend.label}`;
+  const bothEmpty = trend.pct === null && trend.tokens.pct === null;
+
   const meta = el('div', 'meta');
-  meta.append(el('div', '', `${data.label}: ${data.total} uses · ${data.skills.length} skills · top ${data.skills[0].id}`));
-  meta.append(el('div', '', `${fmtTok(data.tokens)} tokens · ${fmtTok(data.cache)} cached · ${data.streak}-day streak`));
-  meta.append(el('div', '', `${trendText} · ${tokTrendText} · updated ${freshness(data.builtAt)}`));
-  if (data.expensive) {
-    meta.append(el('div', '', `Most expensive: ${data.expensive.id} · ${fmtTok(data.expensive.tokens)} tok`));
+  const line1 = el('div');
+  const add = (parent: HTMLElement, text: string, bold = false) => {
+    parent.append(bold ? el('b', '', text) : el('span', '', text));
+  };
+  add(line1, `${data.label}: `);
+  add(line1, String(data.total), true);
+  add(line1, ' uses · ');
+  add(line1, String(data.skills.length), true);
+  add(line1, ' skills · top ');
+  add(line1, data.skills[0].id, true);
+  add(line1, ' · ');
+  add(line1, fmtTok(data.tokens), true);
+  add(line1, ' tokens · ');
+  add(line1, fmtTok(data.cache), true);
+  add(line1, ' cached');
+
+  const line2 = el('div');
+  add(line2, `${data.streak}-day`, true);
+  add(line2, ' streak · ');
+  const comparisons: { text: string; strong: boolean }[] = [];
+  if (bothEmpty) {
+    comparisons.push({ text: `no data ${trend.label}`, strong: false });
+  } else {
+    comparisons.push({
+      text: trend.pct === null ? `no use data ${trend.label}`
+        : `${trend.pct >= 0 ? '+' : ''}${trend.pct}% uses ${trend.label}`,
+      strong: trend.pct !== null,
+    });
+    if (trend.tokens.pct !== null) comparisons.push({
+      text: `${trend.tokens.pct >= 0 ? '+' : ''}${trend.tokens.pct}% tokens ${trend.label}`,
+      strong: true,
+    });
   }
+  comparisons.forEach((part, i) => {
+    if (i) add(line2, ' · ');
+    add(line2, part.text, part.strong);
+  });
+  add(line2, ' · updated ');
+  add(line2, freshness(data.builtAt), true);
+  if (data.expensive) {
+    add(line2, ' · most: ');
+    add(line2, data.expensive.id, true);
+    add(line2, ' ');
+    add(line2, fmtTok(data.expensive.tokens), true);
+  }
+  meta.append(line1, line2);
   root.append(meta);
 
   const max = data.skills[0].count || 1;
